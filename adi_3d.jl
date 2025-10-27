@@ -12,8 +12,6 @@
 
 using LinearAlgebra
 using KernelAbstractions
-using Trixi
-using OrdinaryDiffEqTsit5
 using Plots
 using SparseArrays
 using LaTeXStrings
@@ -36,9 +34,9 @@ function create_adaptive_grid_N(x_start, x_transition1, x_transition2, x_end,
 end
 
 
-gridx = create_adaptive_grid_N(coordinates_min[1], -0.1, 0.7, coordinates_max[1], 25, 30, 20, CPU(), Float64);
-gridy = create_adaptive_grid_N(coordinates_min[2], -0.1, 0.7, coordinates_max[2], 40, 60, 30, CPU(), Float64);
-gridz = create_adaptive_grid_N(coordinates_min[3], -0.1, 0.7, coordinates_max[3], 40, 60, 30, CPU(), Float64);
+# gridx = create_adaptive_grid_N(coordinates_min[1], -0.1, 0.7, coordinates_max[1], 25, 30, 20, CPU(), Float64);
+# gridy = create_adaptive_grid_N(coordinates_min[2], -0.1, 0.7, coordinates_max[2], 40, 60, 30, CPU(), Float64);
+# gridz = create_adaptive_grid_N(coordinates_min[3], -0.1, 0.7, coordinates_max[3], 40, 60, 30, CPU(), Float64);
 
 
 
@@ -53,7 +51,7 @@ gridz = range(coordinates_min[3], coordinates_max[3], length=81)
 nx = length(gridx)
 ny = length(gridy)
 nz = length(gridz)
-dt = 0.05
+dt = 0.01
 
 
 D = diffusivity() # defined in elixir_advection_diffusion.jl
@@ -115,7 +113,7 @@ RHS = zero(U)
 u_new_x = zero(U)
 u_new_y = zero(U)
 u_new_z = zero(U)
-T = 1.0
+T = 2.0
 n_steps = Int(T / dt)
 for step in 1:n_steps
     @show step
@@ -144,6 +142,7 @@ for step in 1:n_steps
     # Z explicit
     for i in 1:nx, j in 1:ny
         RHS[i, j, :] += A_3 * U[i, j, :]  
+        # RHS[i, j, :] += A_3 * u_new_x[i, j, :]  
     end
     # Y implicit
     for i in 1:nx, k in 1:nz
@@ -154,7 +153,8 @@ for step in 1:n_steps
     RHS .= u_new_y
     # X explicit
     for j in 1:ny, k in 1:nz
-        RHS[:, j, k] += A_1 * u_new_x[:, j, k]  
+        RHS[:, j, k] += A_1 * u_new_x[:, j, k]
+        # RHS[:, j, k] += A_1 * u_new_y[:, j, k]  
     end
     # Y explicit
     for i in 1:nx, k in 1:nz
@@ -169,6 +169,6 @@ end
 
 
 
-z_slice = -0.4
+z_slice = 0.4
 idz = findall(z -> isapprox(z, z_slice; atol=1e-8), gridz)[1]
 heatmap(gridx, gridy, U[:, :, idz]', title="solution at T = $T and at z = $(gridz[idz])", xlabel="x", ylabel="y",  clim=(1,1.3), size =(600, 500))

@@ -88,6 +88,6 @@ sol = solve(ode, alg; abstol = time_int_tol, reltol = time_int_tol,
 plot(sol, clim=(1,1.3), title = "Solution Trixi", size =(600, 500))
 
 
-z_slice = -0.4
+z_slice = -0.3
 pd = PlotData2D(sol[end], semi, slice=:xy, point=(0.0, 0.0, z_slice))
 plot(pd, clim=(1,1.3), title = "Solution Trixi slice xy at z=$z_slice", size =(600, 500))
