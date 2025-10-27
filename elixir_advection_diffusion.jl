@@ -60,7 +60,7 @@ semi = SemidiscretizationHyperbolicParabolic(mesh,
 # ODE solvers, callbacks etc.
 
 # Create ODE problem with time span from 0.0 to 1.5
-tspan = (0.0, 2.0)
+tspan = (0.0, 4.0)
 ode = semidiscretize(semi, tspan)
 
 # At the beginning of the main loop, the SummaryCallback prints a summary of the simulation setup
@@ -85,4 +85,4 @@ alg = Tsit5()
 time_int_tol = 1.0e-11
 sol = solve(ode, alg; abstol = time_int_tol, reltol = time_int_tol,
             ode_default_options()..., callback = callbacks)
-plot(sol, clim=(1,1.3), title = "Solution Trixi")
+plot(sol, clim=(1,1.3), title = "Solution Trixi", size =(600, 500), left_margin = 0Plots.mm, right_margin = 0Plots.mm, top_margin = 0Plots.mm, bottom_margin = 0Plots.mm)
