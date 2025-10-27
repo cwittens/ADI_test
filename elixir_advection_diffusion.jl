@@ -5,27 +5,27 @@ using Plots
 ###############################################################################
 # semidiscretization of the linear advection-diffusion equation
 
-advection_velocity = (0.0, 0.0)
-equations = LinearScalarAdvectionEquation2D(advection_velocity)
+advection_velocity = (0.0, 0.0, 0.0)
+equations = LinearScalarAdvectionEquation3D(advection_velocity)
 diffusivity() = 5.0e-2
-equations_parabolic = LaplaceDiffusion2D(diffusivity(), equations)
+equations_parabolic = LaplaceDiffusion3D(diffusivity(), equations)
 
 # Create DG solver with polynomial degree = 3 and (local) Lax-Friedrichs/Rusanov flux as surface flux
 solver = DGSEM(polydeg = 3, surface_flux = flux_lax_friedrichs)
 
-coordinates_min = (-1.0, -1.0) # minimum coordinates (min(x), min(y))
-coordinates_max = (1.0, 1.0) # maximum coordinates (max(x), max(y))
+coordinates_min = (-1.0, -1.0, -1.0) # minimum coordinates (min(x), min(y), min(z))
+coordinates_max = (1.0, 1.0, 1.0) # maximum coordinates (max(x), max(y), max(z))
 
 # Create a uniformly refined mesh with periodic boundaries
 mesh = TreeMesh(coordinates_min, coordinates_max,
-                initial_refinement_level = 4,
+                initial_refinement_level = 3,
                 periodicity = false,
                 n_cells_max = 30_000) # set maximum capacity of tree data structure
 
 # Define initial condition
-function initial_condition_diffusion(x, y)
+function initial_condition_diffusion(x, y, z)
     # Store translated coordinate for easy use of exact solution
-    x_shift = [x, y] .- [0.2, 0.2]
+    x_shift = [x, y, z] .- [0.2, 0.2, 0.2]
     nu = diffusivity()
     c = 1
     scalar = c + exp(-4 * sum(abs2, x_shift))
@@ -33,7 +33,7 @@ function initial_condition_diffusion(x, y)
 end
 
 function initial_condition_diffusion(x, t,
-                                                      equation::LinearScalarAdvectionEquation2D)
+                                                      equation::LinearScalarAdvectionEquation3D)
     scalar = initial_condition_diffusion(x...)
     return SVector(scalar)
 end
@@ -60,7 +60,7 @@ semi = SemidiscretizationHyperbolicParabolic(mesh,
 # ODE solvers, callbacks etc.
 
 # Create ODE problem with time span from 0.0 to 1.5
-tspan = (0.0, 4.0)
+tspan = (0.0, 2.0)
 ode = semidiscretize(semi, tspan)
 
 # At the beginning of the main loop, the SummaryCallback prints a summary of the simulation setup
@@ -85,4 +85,9 @@ alg = Tsit5()
 time_int_tol = 1.0e-11
 sol = solve(ode, alg; abstol = time_int_tol, reltol = time_int_tol,
             ode_default_options()..., callback = callbacks)
-plot(sol, clim=(1,1.3), title = "Solution Trixi", size =(600, 500), left_margin = 0Plots.mm, right_margin = 0Plots.mm, top_margin = 0Plots.mm, bottom_margin = 0Plots.mm)
+plot(sol, clim=(1,1.3), title = "Solution Trixi", size =(600, 500))
+
+
+z_slice = -0.4
+pd = PlotData2D(sol[end], semi, slice=:xy, point=(0.0, 0.0, z_slice))
+plot(pd, clim=(1,1.3), title = "Solution Trixi slice xy at z=$z_slice", size =(600, 500))
