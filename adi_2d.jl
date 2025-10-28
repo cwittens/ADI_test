@@ -1,5 +1,5 @@
-# using Pkg
-# Pkg.activate(@__DIR__)
+using Pkg
+Pkg.activate(@__DIR__)
 # Pkg.instantiate()
 
 # Pkg.add("LinearAlgebra")
@@ -22,8 +22,8 @@ using LaTeXStrings
 coordinates_min = (-1.0, -1.0) # minimum coordinates (min(x), min(y))
 coordinates_max = (1.0, 1.0) # maximum coordinates (max(x), max(y))
 dim = 2
-gridx = range(coordinates_min[1], coordinates_max[1], length=401)
-gridy = range(coordinates_min[2], coordinates_max[2], length=401)
+gridx = range(coordinates_min[1], coordinates_max[1], length=101)
+gridy = range(coordinates_min[2], coordinates_max[2], length=91)
 
 function create_adaptive_grid_N(x_start, x_transition1, x_transition2, x_end,
     N1, N2, N3, backend, Float_used)
@@ -49,7 +49,7 @@ gridy = create_adaptive_grid_N(coordinates_min[2], -0.1, 0.7, coordinates_max[2]
 nx = length(gridx)
 ny = length(gridy)
 
-dt = 0.1
+dt = 0.5
 
 
 D = diffusivity() # defined in elixir_advection_diffusion.jl
@@ -101,7 +101,14 @@ end
 A_1 = build_operator(gridx, dt, D)
 A_2 = build_operator(gridy, dt, D)
 
-
+function initial_condition_diffusion(x, y)
+    # Store translated coordinate for easy use of exact solution
+    x_shift = [x, y] .- [0.2, 0.2]
+    nu = diffusivity()
+    c = 1
+    scalar = c + exp(-4 * sum(abs2, x_shift))
+    return scalar
+end
 
 U = [initial_condition_diffusion(x, y) for x in gridx, y in gridy] # defined in elixir_advection_diffusion.jl
 heatmap(gridx, gridy, U', title="Initial Condition", xlabel="x", ylabel="y", size =(600, 500))
@@ -133,4 +140,5 @@ for _ in 1:n_steps
 
 end
 
-heatmap(gridx, gridy, U', title="Solution at final time", xlabel=L"x", ylabel=L"y", clim=(1, 1.3), size =(600, 500), left_margin = 0Plots.mm, right_margin = 0Plots.mm, top_margin = 0Plots.mm, bottom_margin = 0Plots.mm)
+U2d = copy(U)
+heatmap(gridx, gridy, U2d', title="Solution at final time", xlabel=L"x", ylabel=L"y", clim=(1, 1.3), size =(600, 500))

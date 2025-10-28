@@ -43,15 +43,15 @@ end
 coordinates_min = (-1.0, -1.0, -1.0) # minimum coordinates (min(x), min(y), min(z))
 coordinates_max = (1.0, 1.0, 1.0) # maximum coordinates (max(x), max(y), max(z))
 dim = 3
-gridx = range(coordinates_min[1], coordinates_max[1], length=101)
-gridy = range(coordinates_min[2], coordinates_max[2], length=91)
-gridz = range(coordinates_min[3], coordinates_max[3], length=81)
+gridx = range(coordinates_min[1], coordinates_max[1], length=11)
+gridy = range(coordinates_min[2], coordinates_max[2], length=11)
+gridz = range(coordinates_min[3], coordinates_max[3], length=11)
 
 
 nx = length(gridx)
 ny = length(gridy)
 nz = length(gridz)
-dt = 0.01
+dt = 0.05
 
 
 D = diffusivity() # defined in elixir_advection_diffusion.jl
@@ -67,6 +67,7 @@ function build_operator(grid, dt, D)
         Δx_plus = grid[i+1] - grid[i]
 
         factor = (dt / dim) * 2 / (Δx_minus + Δx_plus)
+        # factor = 2 / (Δx_minus + Δx_plus)
 
         D_minus = D
         D_center = D
@@ -82,6 +83,7 @@ function build_operator(grid, dt, D)
     D_center = D
     D_plus = D
     factor_left = (dt / dim) * 0.5 * (D_center + D_plus) / (Δx_plus)^2
+    # factor_left =  0.5 * (D_center + D_plus) / (Δx_plus)^2
 
     d[1] = -factor_left
     du[1] = factor_left
@@ -91,6 +93,7 @@ function build_operator(grid, dt, D)
     D_minus = D
     D_center = D
     factor_right = (dt / dim) * 0.5 * (D_center + D_minus) / (Δx_minus)^2
+    # factor_right = 0.5 * (D_center + D_minus) / (Δx_minus)^2
 
     dl[nx-1] = factor_right
     d[nx] = -factor_right
@@ -113,8 +116,9 @@ RHS = zero(U)
 u_new_x = zero(U)
 u_new_y = zero(U)
 u_new_z = zero(U)
-T = 2.0
+T = 1.0
 n_steps = Int(T / dt)
+n_steps = 7
 for step in 1:n_steps
     @show step
     # X direction implicit, Y and Z direction explicit
@@ -170,5 +174,50 @@ end
 
 
 z_slice = 0.4
+idz = findall(z -> isapprox(z, z_slice; atol=1e-8), gridz)[1]
+heatmap(gridx, gridy, U[:, :, idz]', title="solution at T = $T and at z = $(gridz[idz])", xlabel="x", ylabel="y",  clim=(1,1.3), size =(600, 500))
+
+
+
+#########################################
+# good old ODE.jl
+
+function ode!(du, u, p, t)
+    (; nx, ny, nz, A_1, A_2, A_3, tmpx, tmpy, tmpz) = p
+    # X explicit
+    for j in 1:ny, k in 1:nz
+        mul!(tmpx, A_1, view(u, :, j, k))
+        du[:, j, k] .= tmpx
+    end
+    # Y explicit
+    for i in 1:nx, k in 1:nz
+        mul!(tmpy, A_2, view(u, i, :, k))
+        du[i, :, k] .+= tmpy
+    end
+    # Z explicit
+    for i in 1:nx, j in 1:ny
+        mul!(tmpz, A_3, view(u, i, j, :))
+        du[i, j, :] .+= tmpz
+    end
+    return nothing
+end
+
+A_1 = build_operator(gridx, 3, D)
+A_2 = build_operator(gridy, 3, D)
+A_3 = build_operator(gridz, 3, D)
+
+
+
+u0 = U
+tmpx = zeros(nx)
+tmpy = zeros(ny)
+tmpz = zeros(nz)
+T = 4.0
+prob = ODEProblem(ode!, u0, (0.0, T), (;nx=nx, ny=ny, nz=nz, A_1=A_1, A_2=A_2, A_3=A_3, tmpx=tmpx, tmpy=tmpy, tmpz=tmpz))
+@time sol = solve(prob, Euler(), dt = 0.3, reltol=1e-4, abstol=1e-4)
+# plot(diff(sol.t))
+# dt of around 0.003
+U = sol.u[end]
+z_slice = 0.0
 idz = findall(z -> isapprox(z, z_slice; atol=1e-8), gridz)[1]
 heatmap(gridx, gridy, U[:, :, idz]', title="solution at T = $T and at z = $(gridz[idz])", xlabel="x", ylabel="y",  clim=(1,1.3), size =(600, 500))

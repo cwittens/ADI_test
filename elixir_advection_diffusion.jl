@@ -25,7 +25,7 @@ mesh = TreeMesh(coordinates_min, coordinates_max,
 # Define initial condition
 function initial_condition_diffusion(x, y, z)
     # Store translated coordinate for easy use of exact solution
-    x_shift = [x, y, z] .- [0.2, 0.2, 0.2]
+    x_shift = [x, y, z] .- [0.2, 0.2, 0.0]
     nu = diffusivity()
     c = 1
     scalar = c + exp(-4 * sum(abs2, x_shift))
@@ -60,7 +60,7 @@ semi = SemidiscretizationHyperbolicParabolic(mesh,
 # ODE solvers, callbacks etc.
 
 # Create ODE problem with time span from 0.0 to 1.5
-tspan = (0.0, 2.0)
+tspan = (0.0, 3.0)
 ode = semidiscretize(semi, tspan)
 
 # At the beginning of the main loop, the SummaryCallback prints a summary of the simulation setup
@@ -82,12 +82,12 @@ callbacks = CallbackSet(summary_callback, analysis_callback, alive_callback)
 
 # OrdinaryDiffEq's `solve` method evolves the solution in time and executes the passed callbacks
 alg = Tsit5()
-time_int_tol = 1.0e-11
+time_int_tol = 1.0e-6
 sol = solve(ode, alg; abstol = time_int_tol, reltol = time_int_tol,
             ode_default_options()..., callback = callbacks)
-plot(sol, clim=(1,1.3), title = "Solution Trixi", size =(600, 500))
+# plot(sol, clim=(1,1.3), title = "Solution Trixi", size =(600, 500))
 
 
-z_slice = -0.3
+z_slice = 0.4
 pd = PlotData2D(sol[end], semi, slice=:xy, point=(0.0, 0.0, z_slice))
-plot(pd, clim=(1,1.3), title = "Solution Trixi slice xy at z=$z_slice", size =(600, 500))
+plot(pd, clim=(1,1.15), title = "Solution Trixi slice xy at z=$z_slice", size =(600, 500))
