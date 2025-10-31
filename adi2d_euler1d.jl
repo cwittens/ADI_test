@@ -22,9 +22,9 @@ using LaTeXStrings
 coordinates_min = (-1.0, -1.0, -1.0) # minimum coordinates (min(x), min(y), min(z))
 coordinates_max = (1.0, 1.0, 1.0) # maximum coordinates (max(x), max(y), max(z))
 dim = 2 # dim of ADI
-gridx = range(coordinates_min[1], coordinates_max[1], length=101)
-gridy = range(coordinates_min[2], coordinates_max[2], length=101)
-gridz = range(coordinates_min[3], coordinates_max[3], length=11)
+gridx = range(coordinates_min[1], coordinates_max[1], length=21)
+gridy = range(coordinates_min[2], coordinates_max[2], length=31)
+gridz = range(coordinates_min[3], coordinates_max[3], length=41)
 
 
 nx = length(gridx)
@@ -81,9 +81,9 @@ function build_operator(grid, dt, D)
     return Tridiagonal(dl, d, du)
 end
 
-A_1 = build_operator(gridx, dt, D)
-A_2 = build_operator(gridy, dt, D)
-A_3 = build_operator(gridz, 3, D)
+A_1 = build_operator(gridx, 2, D)
+A_2 = build_operator(gridy, 2, D)
+A_3 = build_operator(gridz, 2, D)
 
 function initial_condition_diffusion(x, y, z)
     # Store translated coordinate for easy use of exact solution
@@ -103,7 +103,7 @@ heatmap(gridx, gridy, U[:, :, idz]', title="initial_condition at z = $(gridz[idz
 
 
 RHS = zero(U)
-u_new = zero(U)
+u_new = zero(U)   
 tmpx = zero(U[:, 1, 1])
 tmpy = zero(U[1, :, 1])
 # ADI in (x-y) plane

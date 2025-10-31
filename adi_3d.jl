@@ -43,9 +43,9 @@ end
 coordinates_min = (-1.0, -1.0, -1.0) # minimum coordinates (min(x), min(y), min(z))
 coordinates_max = (1.0, 1.0, 1.0) # maximum coordinates (max(x), max(y), max(z))
 dim = 3
-gridx = range(coordinates_min[1], coordinates_max[1], length=11)
-gridy = range(coordinates_min[2], coordinates_max[2], length=11)
-gridz = range(coordinates_min[3], coordinates_max[3], length=11)
+gridx = range(coordinates_min[1], coordinates_max[1], length=101)
+gridy = range(coordinates_min[2], coordinates_max[2], length=101)
+gridz = range(coordinates_min[3], coordinates_max[3], length=101)
 
 
 nx = length(gridx)
@@ -183,6 +183,7 @@ heatmap(gridx, gridy, U[:, :, idz]', title="solution at T = $T and at z = $(grid
 # good old ODE.jl
 
 function ode!(du, u, p, t)
+
     (; nx, ny, nz, A_1, A_2, A_3, tmpx, tmpy, tmpz) = p
     # X explicit
     for j in 1:ny, k in 1:nz
@@ -212,12 +213,12 @@ u0 = U
 tmpx = zeros(nx)
 tmpy = zeros(ny)
 tmpz = zeros(nz)
-T = 4.0
+T = 30.0
 prob = ODEProblem(ode!, u0, (0.0, T), (;nx=nx, ny=ny, nz=nz, A_1=A_1, A_2=A_2, A_3=A_3, tmpx=tmpx, tmpy=tmpy, tmpz=tmpz))
-@time sol = solve(prob, Euler(), dt = 0.3, reltol=1e-4, abstol=1e-4)
+@time sol = solve(prob, ROCK2(), reltol=1e-4, abstol=1e-4)
 # plot(diff(sol.t))
 # dt of around 0.003
 U = sol.u[end]
 z_slice = 0.0
 idz = findall(z -> isapprox(z, z_slice; atol=1e-8), gridz)[1]
-heatmap(gridx, gridy, U[:, :, idz]', title="solution at T = $T and at z = $(gridz[idz])", xlabel="x", ylabel="y",  clim=(1,1.3), size =(600, 500))
+heatmap(gridx, gridy, U[:, :, idz]', title="solution at T = $T and at z = $(gridz[idz])", xlabel="x", ylabel="y",  clim=(1,1.15), size =(600, 500))
