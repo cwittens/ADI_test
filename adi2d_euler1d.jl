@@ -9,22 +9,25 @@ Pkg.activate(@__DIR__)
 # Pkg.add("Plots")
 # Pkg.add("LaTeXStrings")
 # Pkg.add("SparseArrays")
+# Pkg.add("AMDGPU")
+# Pkg.add("Adapt")
 
 using LinearAlgebra
 using KernelAbstractions
-using Trixi
-using OrdinaryDiffEq
-using Plots
-using SparseArrays
-using LaTeXStrings
-
+# using Trixi
+# using OrdinaryDiffEq
+# using Plots
+# using SparseArrays
+# using LaTeXStrings
+using AMDGPU
+using Adapt
 
 coordinates_min = (-1.0, -1.0, -1.0) # minimum coordinates (min(x), min(y), min(z))
 coordinates_max = (1.0, 1.0, 1.0) # maximum coordinates (max(x), max(y), max(z))
 dim = 2 # dim of ADI
-gridx = range(coordinates_min[1], coordinates_max[1], length=21)
-gridy = range(coordinates_min[2], coordinates_max[2], length=31)
-gridz = range(coordinates_min[3], coordinates_max[3], length=41)
+gridx = range(coordinates_min[1], coordinates_max[1], length=5)
+gridy = range(coordinates_min[2], coordinates_max[2], length=5)
+gridz = range(coordinates_min[3], coordinates_max[3], length=5)
 
 
 nx = length(gridx)
@@ -32,7 +35,7 @@ ny = length(gridy)
 nz = length(gridz)
 dt = 0.05
 
-D = diffusivity() # defined in elixir_advection_diffusion.jl
+D = 5.0e-2
 
 function build_operator(grid, dt, D)
     nx = length(grid)
@@ -88,7 +91,7 @@ A_3 = build_operator(gridz, 2, D)
 function initial_condition_diffusion(x, y, z)
     # Store translated coordinate for easy use of exact solution
     x_shift = [x, y, z] .- [0.2, 0.2, 0.0]
-    nu = diffusivity()
+    nu = D
     c = 1
     scalar = c + exp(-4 * sum(abs2, x_shift))
     return scalar

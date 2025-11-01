@@ -1,10 +1,18 @@
-function rhs_z(du, u, p, t)
-    (; nx, ny, A_3) = p
-    for i in 1:nx, j in 1:ny
-        du[i, j, :] .= A_3 * u[i, j, :]
-    end
-    return nothing
-end
+coordinates_min = (-1.0, -1.0, -1.0) # minimum coordinates (min(x), min(y), min(z))
+coordinates_max = (1.0, 1.0, 1.0) # maximum coordinates (max(x), max(y), max(z))
+dim = 2 # dim of ADI
+gridx = range(coordinates_min[1], coordinates_max[1], length=5)
+gridy = range(coordinates_min[2], coordinates_max[2], length=5)
+gridz = range(coordinates_min[3], coordinates_max[3], length=5)
+
+
+nx = length(gridx)
+ny = length(gridy)
+nz = length(gridz)
+dt = 2
+
+D = 5.0e-2
+
 
 @kernel function diffusion!(dϕ, @Const(ϕ), gridx, gridy, gridz, Nx, Ny, Nz, D, direction::Val{xyz}) where xyz
     i, j, k = @index(Global, NTuple)
@@ -60,15 +68,32 @@ end
 
 end
 
+U = [initial_condition_diffusion(x, y, z) for x in gridx, y in gridy, z in gridz]
+A_1 = build_operator(gridx, 2, D)
+A_2 = build_operator(gridy, 2, D)
+A_3 = build_operator(gridz, 2, D)
+
+
+backend = CPU()
+backend = ROCBackend()
+
+U = adapt(backend, U)
+gridx = adapt(backend, gridx)
+gridy = adapt(backend, gridy)
+gridz = adapt(backend, gridz)
+A_1 = adapt(backend, A_1)
+A_2 = adapt(backend, A_2)
+A_3 = adapt(backend, A_3)
+
 RHS = zero(U)
 RHS2 = zero(U)
-
+using GPUArraysCore: @allowscalar
 # X direction implicit, Y direction explicit for dt/2
 @time for i in 1:nx, k in 1:nz
-    RHS[i, :, k] = A_2 * U[i, :, k]
+    @allowscalar RHS[i, :, k] = A_2 * U[i, :, k]
 end
 
-@time diffusion!(CPU())(RHS2, U, gridx, gridy, gridz, nx, ny, nz, D, Val(:y), ndrange=(nx, ny, nz))
+@time diffusion!(backend)(RHS2, U, gridx, gridy, gridz, nx, ny, nz, D, Val(:y), ndrange=(nx, ny, nz))
 
 RHS .- RHS2
 
@@ -76,7 +101,7 @@ RHS .- RHS2
     RHS[:, j, k] = (A_1) * U[:, j, k]
 end
 
-@time diffusion!(CPU())(RHS2, U, gridx, gridy, gridz, nx, ny, nz, D, Val(:x), ndrange=(nx, ny, nz))
+@time diffusion!(backend)(RHS2, U, gridx, gridy, gridz, nx, ny, nz, D, Val(:x), ndrange=(nx, ny, nz))
 
 RHS .- RHS2
 
@@ -88,10 +113,9 @@ end
 
 RHS .- RHS2
 
-Float_used = Float64
 
 
-@kernel function thomas(U, @Const(RHS), gridx, gridy, gridz, N, dt, D, direction::Val{xy}) where xy
+@kernel function thomas(U, RHS, gridx, gridy, gridz, ::Val{N}, dt, D, direction::Val{xy}) where {N,xy}
     ij, k = @index(Global, NTuple)
 
     Float_used = eltype(RHS)
@@ -99,7 +123,7 @@ Float_used = Float64
 
     # A_1 + I instead of A_1 only
     one = Float_used(1.0)
-    # otherwise set one = 0 (lol)
+
 
     # private memory
     # FIXME right memory
@@ -163,7 +187,7 @@ Float_used = Float64
     diagonal[N] = -factor_right + one
 
     # not let it be undefined (TODO: NOT needed i think)
-    lower[N] = 0
+    # lower[N] = 0
 
     for l in 2:N
         w = lower[l-1] / diagonal[l-1]
@@ -191,6 +215,41 @@ Float_used = Float64
     end
 end
 
+# U = [initial_condition_diffusion(x, y, z) for x in gridx, y in gridy, z in gridz]
+
+u_new = zero(U)
+u_new2 = zero(U)
+u_new3 = zero(U)
+
+for j in 1:ny, k in 1:nz
+    u_new[:, j, k] = (I + A_1) \ U[:, j, k]
+end
+
+
+
+thomas(backend)(u_new, u_new2, gridx, gridy, gridz, Val(nx), 2, D, Val(:x), ndrange=(ny, nz))
+
+
+
+
+
+u_new
+
+sum(abs, u_new2 .- u_new) / length(u_new)
+
+
+
+
+
+
+
+
+
+thomas_x(backend)(u_new3, U, gridx, gridy, gridz, nx, ny, nz, 2, D, ndrange=(ny, nz))
+
+
+
+
 @kernel function thomas_x(U, @Const(RHS), gridx, gridy, gridz, Nx, Ny, Nz, dt, D)
     j, k = @index(Global, NTuple)
 
@@ -206,10 +265,10 @@ end
     # otherwise set one = 0 (lol)
 
     # private memory
-    lower = @private Float_used (Nx,)
-    diagonal = @private Float_used (Nx,)
-    upper = @private Float_used (Nx - 1,)
-    b = @private Float_used (Nx,)
+    lower = @private Float_used (21,)
+    diagonal = @private Float_used (21,)
+    upper = @private Float_used (21 - 1,)
+    b = @private Float_used (21,)
 
     # load RHS into b
     for i in 1:N
@@ -276,22 +335,15 @@ end
 
 end
 
-U = [initial_condition_diffusion(x, y, z) for x in gridx, y in gridy, z in gridz]
-
-u_new = zero(U)
-u_new2 = zero(U)
-u_new3 = zero(U)
-
-for j in 1:ny, k in 1:nz
-    u_new[:, j, k] = (I + A_1) \ U[:, j, k]
-end
-
-thomas_x(CPU())(u_new2, U, gridx, gridy, gridz, nx, ny, nz, 2, D, ndrange=(ny, nz))
-thomas(CPU())(u_new3, U, gridx, gridy, gridz, nx, 2, D, Val(:x), ndrange=(ny, nz))
 
 
-sum(abs, u_new2 .- u_new) / length(u_new)
-sum(abs, u_new3 .- u_new) / length(u_new)
+
+
+
+
+
+
+
 
 
 @time for i in 1:nx, k in 1:nz
