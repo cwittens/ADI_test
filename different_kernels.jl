@@ -14,7 +14,7 @@ dt = 2
 D = 5.0e-2
 
 
-@kernel function diffusion!(dϕ, @Const(ϕ), gridx, gridy, gridz, Nx, Ny, Nz, D, direction::Val{xyz}) where xyz
+@kernel function diffusion!(dϕ, @Const(ϕ), gridx, gridy, gridz, Nx, Ny, Nz, D, direction::Val{xyz}, plus_I::Val{plus_I_bool}) where {xyz,plus_I_bool}
     i, j, k = @index(Global, NTuple)
 
     # FIXME how does dt come into play??!?
@@ -59,13 +59,20 @@ D = 5.0e-2
     half = eltype(ϕ)(0.5)
 
     # Compute 1D diffusion
-    @inbounds dϕ[i, j, k] = @fastmath (
-        (D_plus + D_center) * half * (ϕ[idx_plus...] - ϕ[i, j, k]) / Δ_plus
-        -
-        (D_center + D_minus) * half * (ϕ[i, j, k] - ϕ[idx_minus...]) / Δ_minus
-    ) / ((Δ_plus + Δ_minus) * half) #/ rho_c
 
-
+    if plus_I_bool # compute (I + A_i) * ϕ
+        @inbounds dϕ[i, j, k] = @fastmath ϕ[i, j, k] + (
+            (D_plus + D_center) * half * (ϕ[idx_plus...] - ϕ[i, j, k]) / Δ_plus
+            -
+            (D_center + D_minus) * half * (ϕ[i, j, k] - ϕ[idx_minus...]) / Δ_minus
+        ) / ((Δ_plus + Δ_minus) * half) #/ rho_c
+    else # compute A_i * ϕ
+        @inbounds dϕ[i, j, k] = @fastmath (
+            (D_plus + D_center) * half * (ϕ[idx_plus...] - ϕ[i, j, k]) / Δ_plus
+            -
+            (D_center + D_minus) * half * (ϕ[i, j, k] - ϕ[idx_minus...]) / Δ_minus
+        ) / ((Δ_plus + Δ_minus) * half) #/ rho_c
+    end
 end
 
 U = [initial_condition_diffusion(x, y, z) for x in gridx, y in gridy, z in gridz]
@@ -90,10 +97,11 @@ RHS2 = zero(U)
 using GPUArraysCore: @allowscalar
 # X direction implicit, Y direction explicit for dt/2
 @time for i in 1:nx, k in 1:nz
-    @allowscalar RHS[i, :, k] = A_2 * U[i, :, k]
+    @allowscalar RHS[i, :, k] = (A_2) * U[i, :, k]
 end
 
-@time diffusion!(backend)(RHS2, U, gridx, gridy, gridz, nx, ny, nz, D, Val(:y), ndrange=(nx, ny, nz))
+@time diffusion!(backend)(RHS2, U, gridx, gridy, gridz, nx, ny, nz, D, Val(:y), Val(false), ndrange=(nx, ny, nz))
+
 
 RHS .- RHS2
 
@@ -115,15 +123,13 @@ RHS .- RHS2
 
 
 
-@kernel function thomas(U, RHS, gridx, gridy, gridz, ::Val{N}, dt, D, direction::Val{xy}) where {N,xy}
+@kernel function thomas_I_minus_A(U, RHS, gridx, gridy, gridz, dt, D, ::Val{N}, ::Val{Float_used}, direction::Val{xy}) where {N,Float_used,xy}
     ij, k = @index(Global, NTuple)
 
-    Float_used = eltype(RHS)
     half = Float_used(0.5)
 
-    # A_1 + I instead of A_1 only
-    one = Float_used(1.0)
-
+    # -A_1 + I instead of A_1 only
+    one = 1
 
     # private memory
     # FIXME right memory
@@ -149,14 +155,12 @@ RHS .- RHS2
         error("Invalid direction chosen")
     end
 
-
-
-    # build A_1 FIXME A_1 + I
     # Left boundary (i=1)
     Δ_plus = grid[2] - grid[1]
     D_center = D
     D_plus = D
-    factor_left = (dt / 2) * half * (D_center + D_plus) / (Δ_plus)^2
+    # -A_i + I -> minus sign
+    factor_left = -(dt / 2) * half * (D_center + D_plus) / (Δ_plus)^2
 
     diagonal[1] = -factor_left + one
     upper[1] = factor_left
@@ -164,8 +168,8 @@ RHS .- RHS2
     for l in 2:N-1
         Δ_minus = grid[l] - grid[l-1]
         Δ_plus = grid[l+1] - grid[l]
-
-        factor = (dt / 2) * 2 / (Δ_minus + Δ_plus)
+        # -A_i + I -> minus sign
+        factor = -(dt / 2) * 2 / (Δ_minus + Δ_plus)
 
         D_minus = D
         D_center = D
@@ -181,7 +185,8 @@ RHS .- RHS2
     Δ_minus = grid[N] - grid[N-1]
     D_minus = D
     D_center = D
-    factor_right = (dt / 2) * half * (D_center + D_minus) / (Δ_minus)^2
+    # -A_i + I -> minus sign
+    factor_right = -(dt / 2) * half * (D_center + D_minus) / (Δ_minus)^2
 
     lower[N-1] = factor_right
     diagonal[N] = -factor_right + one
@@ -215,126 +220,59 @@ RHS .- RHS2
     end
 end
 
+gridx = range(coordinates_min[1], coordinates_max[1], length=10)
+gridy = range(coordinates_min[2], coordinates_max[2], length=10)
+gridz = range(coordinates_min[3], coordinates_max[3], length=10)
+
+
+nx = length(gridx)
+ny = length(gridy)
+nz = length(gridz)
+dt = 2
+
+D = 5.0e-2
+U = [initial_condition_diffusion(x, y, z) for x in gridx, y in gridy, z in gridz]
+A_1 = build_operator(gridx, 2, D)
+A_2 = build_operator(gridy, 2, D)
+A_3 = build_operator(gridz, 2, D)
+
+
+backend = CPU()
+backend = ROCBackend()
+
+U = adapt(backend, U)
+gridx = adapt(backend, gridx)
+gridy = adapt(backend, gridy)
+gridz = adapt(backend, gridz)
+A_1 = adapt(backend, A_1)
+A_2 = adapt(backend, A_2)
+A_3 = adapt(backend, A_3)
 # U = [initial_condition_diffusion(x, y, z) for x in gridx, y in gridy, z in gridz]
+Float_used = eltype(U)
 
 u_new = zero(U)
 u_new2 = zero(U)
 u_new3 = zero(U)
 
 for j in 1:ny, k in 1:nz
-    u_new[:, j, k] = (I + A_1) \ U[:, j, k]
+    @allowscalar u_new[:, j, k] = (I - A_1) \ U[:, j, k]
 end
 
 
 
-thomas(backend)(u_new, u_new2, gridx, gridy, gridz, Val(nx), 2, D, Val(:x), ndrange=(ny, nz))
+thomas_I_minus_A(backend)(u_new2, U, gridx, gridy, gridz, 2, D, Val(nx), Val(Float_used), Val(:x), ndrange=(ny, nz))
 
+u_new .- u_new2
 
+for i in 1:nx, k in 1:nz
+    @allowscalar u_new[i, :, k] = (I - A_2) \ U[i, :, k]
+end
+thomas_I_minus_A(backend)(u_new2, U, gridx, gridy, gridz, 2, D, Val(ny), Val(Float_used), Val(:y), ndrange=(nx, nz))
 
+u_new .- u_new2
 
-
-u_new
 
 sum(abs, u_new2 .- u_new) / length(u_new)
-
-
-
-
-
-
-
-
-
-thomas_x(backend)(u_new3, U, gridx, gridy, gridz, nx, ny, nz, 2, D, ndrange=(ny, nz))
-
-
-
-
-@kernel function thomas_x(U, @Const(RHS), gridx, gridy, gridz, Nx, Ny, Nz, dt, D)
-    j, k = @index(Global, NTuple)
-
-
-    grid = gridx
-    N = Nx
-
-    Float_used = eltype(RHS)
-    half = Float_used(0.5)
-
-    # A_1 + I instead of A_1 only
-    one = Float_used(1.0)
-    # otherwise set one = 0 (lol)
-
-    # private memory
-    lower = @private Float_used (21,)
-    diagonal = @private Float_used (21,)
-    upper = @private Float_used (21 - 1,)
-    b = @private Float_used (21,)
-
-    # load RHS into b
-    for i in 1:N
-        b[i] = RHS[i, j, k]
-    end
-
-
-
-
-    # build A_1 FIXME A_1 + I
-    # Left boundary (i=1)
-    Δ_plus = grid[2] - grid[1]
-    D_center = D
-    D_plus = D
-    factor_left = (dt / 2) * half * (D_center + D_plus) / (Δ_plus)^2
-
-    diagonal[1] = -factor_left + one
-    upper[1] = factor_left
-
-    for i in 2:N-1
-        Δ_minus = grid[i] - grid[i-1]
-        Δ_plus = grid[i+1] - grid[i]
-
-        factor = (dt / 2) * 2 / (Δ_minus + Δ_plus)
-
-        D_minus = D
-        D_center = D
-        D_plus = D
-
-        lower[i-1] = factor * half * (D_center + D_minus) / Δ_minus
-        # FIXME + I
-        diagonal[i] = -factor * (half * (D_center + D_plus) / Δ_plus + half * (D_center + D_minus) / Δ_minus) + one
-        upper[i] = factor * half * (D_center + D_plus) / Δ_plus
-    end
-
-    # Right boundary (i=N)
-    Δ_minus = grid[N] - grid[N-1]
-    D_minus = D
-    D_center = D
-    factor_right = (dt / 2) * half * (D_center + D_minus) / (Δ_minus)^2
-
-    lower[N-1] = factor_right
-    diagonal[N] = -factor_right + one
-
-    # not let it be undefined (TODO: NOT needed i think)
-    lower[N] = 0
-
-    for i in 2:N
-        w = lower[i-1] / diagonal[i-1]
-        diagonal[i] -= w * upper[i-1]
-        b[i] -= w * b[i-1]
-    end
-
-    # 'lower' is now the cache for the solution vector
-    lower[N] = b[N] / diagonal[N]
-    for i in (N-1):-1:1
-        lower[i] = (b[i] - upper[i] * lower[i+1]) / diagonal[i]
-    end
-
-    # copy solution back to U
-    for i in 1:N
-        U[i, j, k] = lower[i]
-    end
-
-end
-
 
 
 
